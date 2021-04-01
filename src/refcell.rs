@@ -5,7 +5,10 @@ pub struct RefCell<T> {
     val: UnsafeCell<T>,
     state: Cell<RefState>,
 }
-
+// We only need Copy on RefState because we'll be wrapping them
+// in a Cell for interior mutability but since Clone
+// is a super-trait for Copy, we derive both of them.
+#[derive(Copy, Clone)]
 enum RefState {
     None,
     Shared(usize),
@@ -20,14 +23,38 @@ impl<T> RefCell<T> {
         }
     }
 
-    pub fn borrow(&'a self) -> Ref<'a, T> {}
-    pub fn borrow_mut(&'a self) -> RefMut<'a, T> {}
+    pub fn borrow(&self) -> Option<Ref<'_, T>> {
+        match self.state.get() {
+            RefState::None => {
+                self.state.set(RefState::Shared(1));
+                Some(Ref { reference: self })
+            }
+            RefState::Shared(n) => {
+                self.state.set(RefState::Shared(n + 1));
+                Some(Ref { reference: self })
+            }
+            RefState::Exclusive => None,
+        }
+    }
+    pub fn borrow_mut(&self) -> Option<RefMut<'_, T>> {
+        match self.state.get() {
+            RefState::None => {
+                self.state.set(RefState::Exclusive);
+                Some(RefMut { reference: self })
+            }
+            RefState::Shared(_) => None,
+            RefState::Exclusive => None,
+        }
+    }
 }
 /*
 Ref<'_,T> and RefMut wrappers(smart pointers) around references to the RefCell
 with some lifetime related to the scope in which the reference is valid
 When the reference goes out of scope, our custom drop() is called which deals with
-the decrement of shared/exclusive RefState
+the decrement of shared/exclusive RefState.
+
+Also note that the lifetime of a Ref is tied to the RefCell because we disallow any Refs
+when the RefCell itself has gone out of scope.
 
 A Ref<'_, T> is supposed to be read like a & or &mut except, it's smart for the
 reason because it implements additional semantics with traits like Drop, Deref and
@@ -44,4 +71,52 @@ pub struct Ref<'a, T> {
 }
 pub struct RefMut<'a, T> {
     reference: &'a RefCell<T>,
+}
+
+impl<T> std::ops::Deref for Ref<'_, T> {
+    // A Ref<> is created only when no exclusive references exist
+    // which is checked at runtime rather than at compilation
+    // so dereferencing the *mut T given by UnsafeCell.get()
+    // and casting it into & is fine
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.reference.val.get() }
+    }
+}
+
+impl<T> Drop for Ref<'_, T> {
+    fn drop(&mut self) {
+        // On drop we must decrement the RefState(Shared) count
+        match self.reference.state.get() {
+            RefState::None | RefState::Exclusive => unreachable!(),
+            RefState::Shared(1) => self.reference.state.set(RefState::None),
+            RefState::Shared(n) => self.reference.state.set(RefState::Shared(n - 1)),
+        }
+    }
+}
+// RefMut must implement both Deref and DerefMut traits.
+impl<T> std::ops::Deref for RefMut<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.reference.val.get() }
+    }
+}
+
+// RefMut is only created when no shared references have been given out
+// Once a RefMut is given out, we set the state to Exclusive disallowing
+// any Refs to exist.
+
+impl<T> std::ops::DerefMut for RefMut<'_, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *self.reference.val.get() }
+    }
+}
+
+impl<T> Drop for RefMut<'_, T> {
+    fn drop(&mut self) {
+        match self.reference.state.get() {
+            RefState::Shared(_) | RefState::None => unreachable!(),
+            RefState::Exclusive => self.reference.state.set(RefState::None),
+        }
+    }
 }

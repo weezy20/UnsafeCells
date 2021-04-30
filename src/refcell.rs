@@ -8,7 +8,7 @@ use std::cell::UnsafeCell;
 // on the other hand is a more flexible design pattern
 // which may relax these constraints to allow for situations like delaying
 // resource acquisiton or allow usage after scope ends
-// RefCell and MutexGuard are types of RAII Guard objects
+// Ref/RefMut and MutexGuard are types of RAII Guard objects
 
 pub struct RefCell<T> {
     val: UnsafeCell<T>,

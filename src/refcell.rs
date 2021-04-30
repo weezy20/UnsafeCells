@@ -1,5 +1,14 @@
 use crate::cell::Cell;
 use std::cell::UnsafeCell;
+// RefCell is a RAII guard pattern
+// RAII stands for resource acquisiton is initiation
+// which means that objects are tied to resources
+// so their instantiation and going out of scope
+// are tied to resource management. A RAII Guard
+// on the other hand is a more flexible design pattern
+// which may relax these constraints to allow for situations like delaying
+// resource acquisiton or allow usage after scope ends
+// RefCell and MutexGuard are types of RAII Guard objects
 
 pub struct RefCell<T> {
     val: UnsafeCell<T>,
@@ -16,6 +25,18 @@ enum RefState {
 }
 
 impl<T> RefCell<T> {
+    /// Creates a new RefCell<T>
+    ///
+    /// # Example:
+    ///
+    /// ```
+    ///
+    /// let cell = RefCell::new(42);
+    /// let cell_string = RefCell::new(String::from("hello"));
+    /// let cell_borrow = cell.borrow();
+    /// assert_eq!(42, *cell_borrow.unwrap());
+    /// assert_eq!("hello".to_string(), *cell_string.borrow().unwrap());
+    /// ```
     pub fn new(val: T) -> Self {
         Self {
             val: UnsafeCell::new(val),
